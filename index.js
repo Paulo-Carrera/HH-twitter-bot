@@ -1,3 +1,4 @@
+const fs = require('fs');
 const axios = require('axios');
 const { download } = require('./utilities');
 require('dotenv').config({ path: __dirname + '/.env' });
@@ -10,6 +11,104 @@ const categories = ['?category=god', '?category=faith'];
 
 const imagesApiKey = process.env.PEXELS_API_KEY || 'B2z3NTwI3YWsBSFsDk0TkL01LTqf97LY3xX6vRxE6rSf7wCCcWQRj3BU';
 const imagesApiUrl = 'https://api.pexels.com/v1/search';
+
+const usedImagesFile = './used_images.json';
+const imageCacheFile = './image_cache.json';
+
+// Function to load used images
+function loadUsedImages() {
+  try {
+    return JSON.parse(fs.readFileSync(usedImagesFile, 'utf8'));
+  } catch (error) {
+    return [];
+  }
+}
+
+// Function to save used images
+function saveUsedImage(imageUrl) {
+  const usedImages = loadUsedImages();
+  usedImages.push(imageUrl);
+  fs.writeFileSync(usedImagesFile, JSON.stringify(usedImages, null, 2));
+}
+
+// Function to load cached images
+function loadImageCache() {
+  try {
+    return JSON.parse(fs.readFileSync(imageCacheFile, 'utf8'));
+  } catch (error) {
+    return []; // Return an empty array if cache doesn't exist
+  }
+}
+
+// Function to save new cache
+function saveImageCache(images) {
+  fs.writeFileSync(imageCacheFile, JSON.stringify(images, null, 2));
+}
+
+// Function to get an image from the cache
+function getImageFromCache() {
+  const cache = loadImageCache();
+  return cache.length > 0 ? cache.shift() : null;
+}
+
+// Function to update cache after an image is used
+function updateImageCache() {
+  const cache = loadImageCache();
+  cache.shift(); // Remove the first image (used image)
+  saveImageCache(cache);
+}
+
+// Function to refill the cache if empty
+async function refillImageCache() {
+  const queries = ['jesus', 'prayer', 'bible', 'jesus%20christ', 'christian%20art'];
+  let newImages = [];
+
+  for (let query of queries) {
+    try {
+      const response = await axios.get(imagesApiUrl, {
+        params: { query, per_page: 5 },
+        headers: {
+          Authorization: imagesApiKey,
+        },
+      });
+
+      const photos = response.data.photos;
+      if (photos.length > 0) {
+        newImages = newImages.concat(photos.map(photo => photo.src.large));
+      }
+
+      if (newImages.length >= 5) break; // Limit number of new images to store
+    } catch (error) {
+      console.error('Error fetching images for cache:', error.response?.data || error.message);
+    }
+  }
+
+  if (newImages.length > 0) {
+    saveImageCache(newImages);
+    console.log(`Cached ${newImages.length} new images.`);
+  } else {
+    console.error('Failed to refill image cache.');
+  }
+}
+
+// Function to fetch a unique image
+async function fetchUniqueImage() {
+  let imageUrl = getImageFromCache();
+
+  if (!imageUrl) {
+    console.log('Cache empty, refilling...');
+    await refillImageCache();
+    imageUrl = getImageFromCache();
+  }
+
+  if (imageUrl) {
+    updateImageCache(); // Remove the used image from cache
+    console.log('Found a unique cached image:', imageUrl);
+    return imageUrl;
+  } else {
+    throw new Error('No unique images available in cache');
+  }
+}
 
 // Function to fetch a quote
 async function getQuote() {
@@ -27,32 +126,8 @@ async function getQuote() {
   }
 }
 
-// Function to fetch a random image from Pexels
-async function fetchImage() {
-  try {
-    const queries = ['god', 'jesus christ', 'faith', 'christian-art'];
-    const query = queries[Math.floor(Math.random() * queries.length)];
-    const response = await axios.get(imagesApiUrl, {
-      params: { query, per_page: 1 },
-      headers: {
-        Authorization: imagesApiKey,  // Corrected Authorization header
-      },
-    });
-    const photos = response.data.photos;
-    if (photos.length > 0) {
-      const randomImage = photos[0];  // Fetching first image (as only 1 is requested)
-      return randomImage.src.large;  // Adjusted to fetch 'large' version
-    } else {
-      throw new Error('No images found for the query.');
-    }
-  } catch (error) {
-    console.error('Error fetching image:', error.response?.data || error.message);
-    throw new Error('Failed to fetch image');
-  }
-}
-
 // Retry function for promises
-async function retry(fn, retries = 3, delay = 2000) {
+async function retry(fn, retries = 4, delay = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       return await fn();
@@ -68,7 +143,7 @@ async function retry(fn, retries = 3, delay = 2000) {
 const tweet = async () => {
   try {
     await retry(async () => {
-      const randomImageUrl = await fetchImage();  // Fetch random image
+      const randomImageUrl = await fetchUniqueImage(); // Ensure a unique image
       const filename = 'image.png';
 
       // Fetch the quote
@@ -95,6 +170,9 @@ const tweet = async () => {
               },
             });
 
+            // Save the image URL to prevent reusing it
+            saveUsedImage(randomImageUrl);
+
             console.log(`Tweeted: ${randomQuote} with image: ${randomImageUrl}`);
             resolve();
           } catch (twitterError) {
@@ -111,7 +189,7 @@ const tweet = async () => {
 
 // CRON job setup to run every 5 minutes (*/5 * * * *)
 const cronTweet = new CronJob(
-  '*/5 * * * *', // Every 5 minutes
+  '*/5 * * * *',
   async () => {
     console.log('Executing scheduled tweet.');
     await tweet();
@@ -122,4 +200,4 @@ const cronTweet = new CronJob(
 );
 
 console.log('Tweeting process started, will run every 5 minutes.');
-cronTweet.start();  // Start the CRON job
+cronTweet.start();
