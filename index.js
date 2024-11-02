@@ -121,7 +121,7 @@ async function getQuote() {
     });
     return response.data[0].quote;
   } catch (error) {
-    console.error('Error fetching quote:', error.response?.data || error.message);
+    console.error('Quote fetch error:', error.response ? error.response.data : error.message);
     throw new Error('Failed to fetch quote');
   }
 }
@@ -148,7 +148,6 @@ const tweet = async () => {
 
       // Fetch the quote
       const randomQuote = await getQuote();
-      const hashtags = `#god #gospel #christianity #faith #blessed #prayer #worship #grace #jesus #bible #christ #holy #spirituality #salvation #amen #religion #selfimprovement #fyp #grind #motivation #explore`;
 
       // Download the selected image
       await new Promise((resolve, reject) => {
@@ -164,10 +163,16 @@ const tweet = async () => {
 
             // Tweet the quote along with the image
             await twitterClient.v2.tweet({
-              text: `${randomQuote} ✞\n\n${hashtags}`,
+              text: `${randomQuote} ✞`,
               media: {
                 media_ids: [mediaId],
               },
+            });
+
+            // Post hashtags in a reply
+            await twitterClient.v2.tweet({
+              text: `#Hashtags\n    #god\n    #gospel\n    #christianity\n    #faith\n    #blessed\n    #prayer\n    #worship\n    #grace\n    #jesus\n    #bible\n    #christ\n    #holy\n    #spirituality\n    #salvation\n    #amen\n    #religion\n    #selfimprovement\n    #fyp\n    #grind\n    #motivation\n    #explore`,
+              in_reply_to_tweet_id: mediaId,
             });
 
             // Save the image URL to prevent reusing it
@@ -201,3 +206,4 @@ const cronTweet = new CronJob(
 
 console.log('Tweeting process started, will run every 5 minutes.');
 cronTweet.start();
+
